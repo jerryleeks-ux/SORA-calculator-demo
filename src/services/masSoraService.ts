@@ -27,10 +27,40 @@ export class MasSoraService {
     const cachedTime = localStorage.getItem(CACHE_TIMESTAMP_KEY);
     const isCacheFresh = cachedTime && (Date.now() - parseInt(cachedTime, 10) < CACHE_EXPIRY_MS);
 
-    // 2. Attempt direct fetch to official MAS open API with a 3.5s timeout
+    // 2. First attempt: Call our serverless connection at /api/sora (uses KeyId: <MAS_KEY_ID>)
+    try {
+      const serverlessController = new AbortController();
+      const serverlessTimeout = setTimeout(() => serverlessController.abort(), 3500);
+
+      const serverlessRes = await fetch('/api/sora', {
+        signal: serverlessController.signal,
+        headers: { 'Accept': 'application/json' }
+      });
+      clearTimeout(serverlessTimeout);
+
+      if (serverlessRes.ok) {
+        const soraJson = await serverlessRes.json();
+        if (soraJson.success && Array.isArray(soraJson.records) && soraJson.records.length > 0) {
+          const records: SoraRateRecord[] = soraJson.records;
+          localStorage.setItem(CACHE_KEY, JSON.stringify(records));
+          localStorage.setItem(CACHE_TIMESTAMP_KEY, Date.now().toString());
+
+          return {
+            data: records,
+            isLive: true,
+            sourceDescription: 'MAS Gateway Serverless Connection (KeyId Authenticated)',
+            lastUpdated: new Date().toLocaleTimeString('en-SG', { timeZone: 'Asia/Singapore', hour: '2-digit', minute: '2-digit' }) + ' SGT'
+          };
+        }
+      }
+    } catch {
+      // Serverless connection attempt failed or offline, proceed to direct MAS open data or cache
+    }
+
+    // 3. Second attempt: Direct fetch to official MAS open API
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 3500);
+      const timeoutId = setTimeout(() => controller.abort(), 3000);
 
       const response = await fetch(MAS_API_ENDPOINT, {
         signal: controller.signal,
